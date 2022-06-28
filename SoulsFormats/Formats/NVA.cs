@@ -40,17 +40,17 @@ namespace SoulsFormats
         /// <summary>
         /// Navmesh instances in the map.
         /// </summary>
-        public NavmeshSection Navmeshes { get; set; }
+        public NavmeshSection NavMeshes { get; set; }
 
         /// <summary>
         /// Unknown.
         /// </summary>
-        public Section1 Entries1 { get; set; }
+        public FaceDataSection FaceDataSets { get; set; }
 
         /// <summary>
         /// Unknown.
         /// </summary>
-        public Section2 Entries2 { get; set; }
+        public NodeBankSection NodeBanks { get; set; }
 
         /// <summary>
         /// Connections between different navmeshes.
@@ -60,7 +60,7 @@ namespace SoulsFormats
         /// <summary>
         /// Unknown.
         /// </summary>
-        public Section7 Entries7 { get; set; }
+        public LevelConnectorSection LevelConnectors { get; set; }
 
         /// <summary>
         /// Creates an empty NVA formatted for DS3.
@@ -68,11 +68,11 @@ namespace SoulsFormats
         public NVA()
         {
             Version = NVAVersion.DarkSouls3;
-            Navmeshes = new NavmeshSection(2);
-            Entries1 = new Section1();
-            Entries2 = new Section2();
+            NavMeshes = new NavmeshSection(2);
+            FaceDataSets = new FaceDataSection();
+            NodeBanks = new NodeBankSection();
             Connectors = new ConnectorSection();
-            Entries7 = new Section7();
+            LevelConnectors = new LevelConnectorSection();
         }
 
         /// <summary>
@@ -98,21 +98,21 @@ namespace SoulsFormats
             br.ReadUInt32(); // File size
             br.AssertInt32(Version == NVAVersion.OldBloodborne ? 8 : 9); // Section count
 
-            Navmeshes = new NavmeshSection(br);
-            Entries1 = new Section1(br);
-            Entries2 = new Section2(br);
+            NavMeshes = new NavmeshSection(br);
+            FaceDataSets = new FaceDataSection(br);
+            NodeBanks = new NodeBankSection(br);
             new Section3(br);
             Connectors = new ConnectorSection(br);
             var connectorPoints = new ConnectorPointSection(br);
-            var connectorConditions = new ConnectorConditionSection(br);
-            Entries7 = new Section7(br);
-            MapNodeSection mapNodes;
+            var connectorConditions = new GraphConnectionSection(br);
+            LevelConnectors = new LevelConnectorSection(br);
+            GateNodeSection mapNodes;
             if (Version == NVAVersion.OldBloodborne)
-                mapNodes = new MapNodeSection(1);
+                mapNodes = new GateNodeSection(1);
             else
-                mapNodes = new MapNodeSection(br);
+                mapNodes = new GateNodeSection(br);
 
-            foreach (Navmesh navmesh in Navmeshes)
+            foreach (Navmesh navmesh in NavMeshes)
                 navmesh.TakeMapNodes(mapNodes);
 
             foreach (Connector connector in Connectors)
@@ -125,12 +125,12 @@ namespace SoulsFormats
         protected override void Write(BinaryWriterEx bw)
         {
             var connectorPoints = new ConnectorPointSection();
-            var connectorConditions = new ConnectorConditionSection();
+            var connectorConditions = new GraphConnectionSection();
             foreach (Connector connector in Connectors)
                 connector.GivePointsAndConds(connectorPoints, connectorConditions);
 
-            var mapNodes = new MapNodeSection(Version == NVAVersion.Sekiro ? 2 : 1);
-            foreach (Navmesh navmesh in Navmeshes)
+            var mapNodes = new GateNodeSection(Version == NVAVersion.Sekiro ? 2 : 1);
+            foreach (Navmesh navmesh in NavMeshes)
                 navmesh.GiveMapNodes(mapNodes);
 
             bw.BigEndian = false;
@@ -139,14 +139,14 @@ namespace SoulsFormats
             bw.ReserveUInt32("FileSize");
             bw.WriteInt32(Version == NVAVersion.OldBloodborne ? 8 : 9);
 
-            Navmeshes.Write(bw, 0);
-            Entries1.Write(bw, 1);
-            Entries2.Write(bw, 2);
+            NavMeshes.Write(bw, 0);
+            FaceDataSets.Write(bw, 1);
+            NodeBanks.Write(bw, 2);
             new Section3().Write(bw, 3);
             Connectors.Write(bw, 4);
             connectorPoints.Write(bw, 5);
             connectorConditions.Write(bw, 6);
-            Entries7.Write(bw, 7);
+            LevelConnectors.Write(bw, 7);
             if (Version != NVAVersion.OldBloodborne)
                 mapNodes.Write(bw, 8);
 
@@ -261,12 +261,12 @@ namespace SoulsFormats
             /// <summary>
             /// Unknown.
             /// </summary>
-            public int Unk38 { get; set; }
+            public int FaceDataIdx { get; set; }
 
             /// <summary>
-            /// Should equal number of vertices in the model file.
+            /// Face count of the navmesh model
             /// </summary>
-            public int VertexCount { get; set; }
+            public int FaceCount { get; set; }
 
             /// <summary>
             /// Unknown.
@@ -274,17 +274,17 @@ namespace SoulsFormats
             public List<int> NameReferenceIDs { get; set; }
 
             /// <summary>
-            /// Adjacent nodes in an inter-navmesh graph.
+            /// Gate (exit) nodes of this navmesh
             /// </summary>
-            public List<MapNode> MapNodes { get; set; }
+            public List<GateNode> GateNodes { get; set; }
 
             /// <summary>
             /// Unknown
             /// </summary>
             public bool Unk4C { get; set; }
 
-            private short MapNodesIndex;
-            private short MapNodeCount;
+            private short GateNodeIdx;
+            private short GateNodeCount;
 
             /// <summary>
             /// Creates a Navmesh with default values.
@@ -293,7 +293,7 @@ namespace SoulsFormats
             {
                 Scale = Vector3.One;
                 NameReferenceIDs = new List<int>();
-                MapNodes = new List<MapNode>();
+                GateNodes = new List<GateNode>();
             }
 
             internal Navmesh(BinaryReaderEx br, int version)
@@ -306,12 +306,12 @@ namespace SoulsFormats
                 br.AssertInt32(0);
                 NameID = br.ReadInt32();
                 ModelID = br.ReadInt32();
-                Unk38 = br.ReadInt32();
+                FaceDataIdx = br.ReadInt32();
                 br.AssertInt32(0);
-                VertexCount = br.ReadInt32();
+                FaceCount = br.ReadInt32();
                 int nameRefCount = br.ReadInt32();
-                MapNodesIndex = br.ReadInt16();
-                MapNodeCount = br.ReadInt16();
+                GateNodeIdx = br.ReadInt16();
+                GateNodeCount = br.ReadInt16();
                 Unk4C = br.AssertInt32(0, 1) == 1;
 
                 if (version < 4)
@@ -332,17 +332,17 @@ namespace SoulsFormats
                 }
             }
 
-            internal void TakeMapNodes(MapNodeSection entries8)
+            internal void TakeMapNodes(GateNodeSection entries8)
             {
-                MapNodes = new List<MapNode>(MapNodeCount);
-                for (int i = 0; i < MapNodeCount; i++)
-                    MapNodes.Add(entries8[MapNodesIndex + i]);
-                MapNodeCount = -1;
+                GateNodes = new List<GateNode>(GateNodeCount);
+                for (int i = 0; i < GateNodeCount; i++)
+                    GateNodes.Add(entries8[GateNodeIdx + i]);
+                GateNodeCount = -1;
 
-                foreach (MapNode mapNode in MapNodes)
+                foreach (GateNode mapNode in GateNodes)
                 {
-                    if (mapNode.SiblingDistances.Count > MapNodes.Count)
-                        mapNode.SiblingDistances.RemoveRange(MapNodes.Count, mapNode.SiblingDistances.Count - MapNodes.Count);
+                    if (mapNode.SiblingDistances.Count > GateNodes.Count)
+                        mapNode.SiblingDistances.RemoveRange(GateNodes.Count, mapNode.SiblingDistances.Count - GateNodes.Count);
                 }
             }
 
@@ -356,12 +356,12 @@ namespace SoulsFormats
                 bw.WriteInt32(0);
                 bw.WriteInt32(NameID);
                 bw.WriteInt32(ModelID);
-                bw.WriteInt32(Unk38);
+                bw.WriteInt32(FaceDataIdx);
                 bw.WriteInt32(0);
-                bw.WriteInt32(VertexCount);
+                bw.WriteInt32(FaceCount);
                 bw.WriteInt32(NameReferenceIDs.Count);
-                bw.WriteInt16(MapNodesIndex);
-                bw.WriteInt16((short)MapNodes.Count);
+                bw.WriteInt16(GateNodeIdx);
+                bw.WriteInt16((short)GateNodes.Count);
                 bw.WriteInt32(Unk4C ? 1 : 0);
 
                 if (version < 4)
@@ -390,12 +390,12 @@ namespace SoulsFormats
                 }
             }
 
-            internal void GiveMapNodes(MapNodeSection mapNodes)
+            internal void GiveMapNodes(GateNodeSection mapNodes)
             {
                 // Sometimes when the map node count is 0 the index is also 0,
                 // but usually this is accurate.
-                MapNodesIndex = (short)mapNodes.Count;
-                mapNodes.AddRange(MapNodes);
+                GateNodeIdx = (short)mapNodes.Count;
+                mapNodes.AddRange(GateNodes);
             }
 
             /// <summary>
@@ -403,31 +403,31 @@ namespace SoulsFormats
             /// </summary>
             public override string ToString()
             {
-                return $"{NameID} {Position} {Rotation} [{NameReferenceIDs.Count} References] [{MapNodes.Count} MapNodes]";
+                return $"{NameID} {Position} {Rotation} [{NameReferenceIDs.Count} References] [{GateNodes.Count} MapNodes]";
             }
         }
 
         /// <summary>
         /// Unknown.
         /// </summary>
-        public class Section1 : Section<Entry1>
+        public class FaceDataSection : Section<FaceDataEntry>
         {
             /// <summary>
             /// Creates an empty Section1.
             /// </summary>
-            public Section1() : base(1) { }
+            public FaceDataSection() : base(1) { }
 
-            internal Section1(BinaryReaderEx br) : base(br, 1, 1) { }
+            internal FaceDataSection(BinaryReaderEx br) : base(br, 1, 1) { }
 
             internal override void ReadEntries(BinaryReaderEx br, int count)
             {
                 for (int i = 0; i < count; i++)
-                    Add(new Entry1(br));
+                    Add(new FaceDataEntry(br));
             }
 
             internal override void WriteEntries(BinaryWriterEx bw)
             {
-                foreach (Entry1 entry in this)
+                foreach (FaceDataEntry entry in this)
                     entry.Write(bw);
             }
         }
@@ -435,7 +435,7 @@ namespace SoulsFormats
         /// <summary>
         /// Unknown.
         /// </summary>
-        public class Entry1
+        public class FaceDataEntry
         {
             /// <summary>
             /// Unknown; always 0 in DS3 and SDT, sometimes 1 in BB.
@@ -445,9 +445,9 @@ namespace SoulsFormats
             /// <summary>
             /// Creates an Entry1 with default values.
             /// </summary>
-            public Entry1() { }
+            public FaceDataEntry() { }
 
-            internal Entry1(BinaryReaderEx br)
+            internal FaceDataEntry(BinaryReaderEx br)
             {
                 Unk00 = br.ReadInt32();
                 br.AssertInt32(0);
@@ -471,69 +471,69 @@ namespace SoulsFormats
         /// <summary>
         /// Unknown.
         /// </summary>
-        public class Section2 : Section<Entry2>
+        public class NodeBankSection : Section<NodeBankEntry>
         {
             /// <summary>
             /// Creates an empty Section2.
             /// </summary>
-            public Section2() : base(1) { }
+            public NodeBankSection() : base(1) { }
 
-            internal Section2(BinaryReaderEx br) : base(br, 2, 1) { }
+            internal NodeBankSection(BinaryReaderEx br) : base(br, 2, 1) { }
 
             internal override void ReadEntries(BinaryReaderEx br, int count)
             {
                 for (int i = 0; i < count; i++)
-                    Add(new Entry2(br));
+                    Add(new NodeBankEntry(br));
             }
 
             internal override void WriteEntries(BinaryWriterEx bw)
             {
-                foreach (Entry2 entry in this)
+                foreach (NodeBankEntry entry in this)
                     entry.Write(bw);
             }
         }
 
         /// <summary>
-        /// Unknown.
+        /// Seems to be for connecting navmeshes that aren't physically connected (elevators etc.)
         /// </summary>
-        public class Entry2
+        public class NodeBankEntry
         {
             /// <summary>
             /// Unknown; seems to just be the index of this entry.
             /// </summary>
-            public int Unk00 { get; set; }
+            public int BankIdx { get; set; }
 
             /// <summary>
             /// References in this entry; maximum of 64.
             /// </summary>
-            public List<Reference> References { get; set; }
+            public List<NodeBankFace> NodeBankFaces { get; set; }
 
             /// <summary>
             /// Unknown.
             /// </summary>
-            public int Unk08 { get; set; }
+            public int EntityId { get; set; }
 
             /// <summary>
             /// Creates an Entry2 with default values.
             /// </summary>
-            public Entry2()
+            public NodeBankEntry()
             {
-                References = new List<Reference>();
-                Unk08 = -1;
+                NodeBankFaces = new List<NodeBankFace>();
+                EntityId = -1;
             }
 
-            internal Entry2(BinaryReaderEx br)
+            internal NodeBankEntry(BinaryReaderEx br)
             {
-                Unk00 = br.ReadInt32();
+                BankIdx = br.ReadInt32();
                 int referenceCount = br.ReadInt32();
-                Unk08 = br.ReadInt32();
+                EntityId = br.ReadInt32();
                 br.AssertInt32(0);
                 if (referenceCount > 64)
                     throw new InvalidDataException("Entry2 reference count should not exceed 64.");
 
-                References = new List<Reference>(referenceCount);
+                NodeBankFaces = new List<NodeBankFace>(referenceCount);
                 for (int i = 0; i < referenceCount; i++)
-                    References.Add(new Reference(br));
+                    NodeBankFaces.Add(new NodeBankFace(br));
 
                 for (int i = 0; i < 64 - referenceCount; i++)
                     br.AssertInt64(0);
@@ -541,17 +541,17 @@ namespace SoulsFormats
 
             internal void Write(BinaryWriterEx bw)
             {
-                bw.WriteInt32(Unk00);
-                bw.WriteInt32(References.Count);
-                bw.WriteInt32(Unk08);
+                bw.WriteInt32(BankIdx);
+                bw.WriteInt32(NodeBankFaces.Count);
+                bw.WriteInt32(EntityId);
                 bw.WriteInt32(0);
-                if (References.Count > 64)
+                if (NodeBankFaces.Count > 64)
                     throw new InvalidDataException("Entry2 reference count should not exceed 64.");
 
-                foreach (Reference reference in References)
+                foreach (NodeBankFace reference in NodeBankFaces)
                     reference.Write(bw);
 
-                for (int i = 0; i < 64 - References.Count; i++)
+                for (int i = 0; i < 64 - NodeBankFaces.Count; i++)
                     bw.WriteInt64(0);
             }
 
@@ -560,18 +560,18 @@ namespace SoulsFormats
             /// </summary>
             public override string ToString()
             {
-                return $"{Unk00} {Unk08} [{References.Count} References]";
+                return $"{BankIdx} {EntityId} [{NodeBankFaces.Count} References]";
             }
 
             /// <summary>
             /// Unknown.
             /// </summary>
-            public class Reference
+            public class NodeBankFace
             {
                 /// <summary>
                 /// Unknown.
                 /// </summary>
-                public int UnkIndex { get; set; }
+                public int FaceIdx { get; set; }
 
                 /// <summary>
                 /// Unknown.
@@ -581,17 +581,17 @@ namespace SoulsFormats
                 /// <summary>
                 /// Creates a Reference with defalt values.
                 /// </summary>
-                public Reference() { }
+                public NodeBankFace() { }
 
-                internal Reference(BinaryReaderEx br)
+                internal NodeBankFace(BinaryReaderEx br)
                 {
-                    UnkIndex = br.ReadInt32();
+                    FaceIdx = br.ReadInt32();
                     NameID = br.ReadInt32();
                 }
 
                 internal void Write(BinaryWriterEx bw)
                 {
-                    bw.WriteInt32(UnkIndex);
+                    bw.WriteInt32(FaceIdx);
                     bw.WriteInt32(NameID);
                 }
 
@@ -600,7 +600,7 @@ namespace SoulsFormats
                 /// </summary>
                 public override string ToString()
                 {
-                    return $"{UnkIndex} {NameID}";
+                    return $"{FaceIdx} {NameID}";
                 }
             }
         }
@@ -680,12 +680,12 @@ namespace SoulsFormats
             /// <summary>
             /// Points used by this connection.
             /// </summary>
-            public List<ConnectorPoint> Points { get; set; }
+            public List<NavMeshConnection> Points { get; set; }
 
             /// <summary>
             /// Conditions used by this connection.
             /// </summary>
-            public List<ConnectorCondition> Conditions { get; set; }
+            public List<GraphConnection> Conditions { get; set; }
 
             private int PointCount;
             private int ConditionCount;
@@ -697,8 +697,8 @@ namespace SoulsFormats
             /// </summary>
             public Connector()
             {
-                Points = new List<ConnectorPoint>();
-                Conditions = new List<ConnectorCondition>();
+                Points = new List<NavMeshConnection>();
+                Conditions = new List<GraphConnection>();
             }
 
             internal Connector(BinaryReaderEx br)
@@ -713,20 +713,20 @@ namespace SoulsFormats
                 br.AssertInt32(0);
             }
 
-            internal void TakePointsAndConds(ConnectorPointSection points, ConnectorConditionSection conds)
+            internal void TakePointsAndConds(ConnectorPointSection points, GraphConnectionSection conds)
             {
-                Points = new List<ConnectorPoint>(PointCount);
+                Points = new List<NavMeshConnection>(PointCount);
                 for (int i = 0; i < PointCount; i++)
                     Points.Add(points[PointsIndex + i]);
                 PointCount = -1;
 
-                Conditions = new List<ConnectorCondition>(ConditionCount);
+                Conditions = new List<GraphConnection>(ConditionCount);
                 for (int i = 0; i < ConditionCount; i++)
                     Conditions.Add(conds[ConditionsIndex + i]);
                 ConditionCount = -1;
             }
 
-            internal void GivePointsAndConds(ConnectorPointSection points, ConnectorConditionSection conds)
+            internal void GivePointsAndConds(ConnectorPointSection points, GraphConnectionSection conds)
             {
                 PointsIndex = points.Count;
                 points.AddRange(Points);
@@ -759,7 +759,7 @@ namespace SoulsFormats
         /// <summary>
         /// A list of points used to connect navmeshes.
         /// </summary>
-        internal class ConnectorPointSection : Section<ConnectorPoint>
+        internal class ConnectorPointSection : Section<NavMeshConnection>
         {
             /// <summary>
             /// Creates an empty ConnectorPointSection.
@@ -771,60 +771,60 @@ namespace SoulsFormats
             internal override void ReadEntries(BinaryReaderEx br, int count)
             {
                 for (int i = 0; i < count; i++)
-                    Add(new ConnectorPoint(br));
+                    Add(new NavMeshConnection(br));
             }
 
             internal override void WriteEntries(BinaryWriterEx bw)
             {
-                foreach (ConnectorPoint entry in this)
+                foreach (NavMeshConnection entry in this)
                     entry.Write(bw);
             }
         }
 
         /// <summary>
-        /// A point used to connect two navmeshes.
+        /// Resembles hkaiStreamingSet::NavMeshConnection, indicating where exactly navmeshes are connected
         /// </summary>
-        public class ConnectorPoint
+        public class NavMeshConnection
         {
             /// <summary>
             /// Unknown.
             /// </summary>
-            public int Unk00 { get; set; }
+            public int FaceIdx { get; set; }
 
             /// <summary>
             /// Unknown.
             /// </summary>
-            public int Unk04 { get; set; }
+            public int EdgeIdx { get; set; }
 
             /// <summary>
             /// Unknown.
             /// </summary>
-            public int Unk08 { get; set; }
+            public int OppositeFaceIdx { get; set; }
 
             /// <summary>
             /// Unknown.
             /// </summary>
-            public int Unk0C { get; set; }
+            public int OppositeEdgeIdx { get; set; }
 
             /// <summary>
-            /// Creates a ConnectorPoint with default values.
+            /// Creates a NavMeshConnection with default values.
             /// </summary>
-            public ConnectorPoint() { }
+            public NavMeshConnection() { }
 
-            internal ConnectorPoint(BinaryReaderEx br)
+            internal NavMeshConnection(BinaryReaderEx br)
             {
-                Unk00 = br.ReadInt32();
-                Unk04 = br.ReadInt32();
-                Unk08 = br.ReadInt32();
-                Unk0C = br.ReadInt32();
+                FaceIdx = br.ReadInt32();
+                EdgeIdx = br.ReadInt32();
+                OppositeFaceIdx = br.ReadInt32();
+                OppositeEdgeIdx = br.ReadInt32();
             }
 
             internal void Write(BinaryWriterEx bw)
             {
-                bw.WriteInt32(Unk00);
-                bw.WriteInt32(Unk04);
-                bw.WriteInt32(Unk08);
-                bw.WriteInt32(Unk0C);
+                bw.WriteInt32(FaceIdx);
+                bw.WriteInt32(EdgeIdx);
+                bw.WriteInt32(OppositeFaceIdx);
+                bw.WriteInt32(OppositeEdgeIdx);
             }
 
             /// <summary>
@@ -832,97 +832,97 @@ namespace SoulsFormats
             /// </summary>
             public override string ToString()
             {
-                return $"{Unk00} {Unk04} {Unk08} {Unk0C}";
+                return $"{FaceIdx} {EdgeIdx} {OppositeFaceIdx} {OppositeEdgeIdx}";
             }
         }
 
         /// <summary>
-        /// A list of unknown conditions used by connectors.
+        /// Section containing GraphConnections
         /// </summary>
-        internal class ConnectorConditionSection : Section<ConnectorCondition>
+        internal class GraphConnectionSection : Section<GraphConnection>
         {
             /// <summary>
-            /// Creates an empty ConnectorConditionSection.
+            /// Creates an empty GraphConnectionSection.
             /// </summary>
-            public ConnectorConditionSection() : base(1) { }
+            public GraphConnectionSection() : base(1) { }
 
-            internal ConnectorConditionSection(BinaryReaderEx br) : base(br, 6, 1) { }
+            internal GraphConnectionSection(BinaryReaderEx br) : base(br, 6, 1) { }
 
             internal override void ReadEntries(BinaryReaderEx br, int count)
             {
                 for (int i = 0; i < count; i++)
-                    Add(new ConnectorCondition(br));
+                    Add(new GraphConnection(br));
             }
 
             internal override void WriteEntries(BinaryWriterEx bw)
             {
-                foreach (ConnectorCondition entry in this)
+                foreach (GraphConnection entry in this)
                     entry.Write(bw);
             }
         }
 
         /// <summary>
-        /// An unknown condition used by a connector.
+        /// Resembles hkaiStreamingSet::GraphConnection, indicating which nodes of the graph represent the connection
         /// </summary>
-        public class ConnectorCondition
+        public class GraphConnection
         {
             /// <summary>
             /// Unknown.
             /// </summary>
-            public int Condition1 { get; set; }
+            public int NodeIdx { get; set; }
 
             /// <summary>
             /// Unknown.
             /// </summary>
-            public int Condition2 { get; set; }
+            public int OppositeNodeIdx { get; set; }
 
             /// <summary>
-            /// Creates a ConnectorCondition with default values.
+            /// Creates a GraphConnection with default values.
             /// </summary>
-            public ConnectorCondition() { }
+            public GraphConnection() { }
 
-            internal ConnectorCondition(BinaryReaderEx br)
+            internal GraphConnection(BinaryReaderEx br)
             {
-                Condition1 = br.ReadInt32();
-                Condition2 = br.ReadInt32();
+                NodeIdx = br.ReadInt32();
+                OppositeNodeIdx = br.ReadInt32();
             }
 
             internal void Write(BinaryWriterEx bw)
             {
-                bw.WriteInt32(Condition1);
-                bw.WriteInt32(Condition2);
+                bw.WriteInt32(NodeIdx);
+                bw.WriteInt32(OppositeNodeIdx);
             }
 
             /// <summary>
-            /// Returns a string representation of the condition.
+            /// Returns a string representation of the connection.
             /// </summary>
             public override string ToString()
             {
-                return $"{Condition1} {Condition2}";
+                return $"{NodeIdx} {OppositeNodeIdx}";
             }
         }
 
         /// <summary>
-        /// Unknown.
+        /// Hypothesis: This connects levels
         /// </summary>
-        public class Section7 : Section<Entry7>
+        public class LevelConnectorSection : Section<LevelConnector>
         {
             /// <summary>
-            /// Creates an empty Section7.
+            /// Creates an empty LevelConnectorSection.
             /// </summary>
-            public Section7() : base(1) { }
+            public LevelConnectorSection() : base(1) { }
 
-            internal Section7(BinaryReaderEx br) : base(br, 7, 1) { }
+            internal LevelConnectorSection(BinaryReaderEx br) : base(br, 7, 1) { }
 
             internal override void ReadEntries(BinaryReaderEx br, int count)
             {
                 for (int i = 0; i < count; i++)
-                    Add(new Entry7(br));
+                    Add(new LevelConnector(br));
             }
 
             internal override void WriteEntries(BinaryWriterEx bw)
             {
-                foreach (Entry7 entry in this)
+                foreach (LevelConnector entry in this)
                     entry.Write(bw);
             }
         }
@@ -930,7 +930,7 @@ namespace SoulsFormats
         /// <summary>
         /// Unknown; believed to have something to do with connecting maps.
         /// </summary>
-        public class Entry7
+        public class LevelConnector
         {
             /// <summary>
             /// Unknown.
@@ -950,9 +950,9 @@ namespace SoulsFormats
             /// <summary>
             /// Creates an Entry7 with default values.
             /// </summary>
-            public Entry7() { }
+            public LevelConnector() { }
 
-            internal Entry7(BinaryReaderEx br)
+            internal LevelConnector(BinaryReaderEx br)
             {
                 Position = br.ReadVector3();
                 br.AssertSingle(1);
@@ -982,21 +982,21 @@ namespace SoulsFormats
         }
 
         /// <summary>
-        /// Unknown. Version: 1 for BB and DS3, 2 for Sekiro.
+        /// This contains the nodes of the graph indicating how navmeshes are connected. Probably a ripoff of hkaiDirectedGraphExplicitCost
         /// </summary>
-        internal class MapNodeSection : Section<MapNode>
+        internal class GateNodeSection : Section<GateNode>
         {
             /// <summary>
             /// Creates an empty Section8 with the given version.
             /// </summary>
-            public MapNodeSection(int version) : base(version) { }
+            public GateNodeSection(int version) : base(version) { }
 
-            internal MapNodeSection(BinaryReaderEx br) : base(br, 8, 1, 2) { }
+            internal GateNodeSection(BinaryReaderEx br) : base(br, 8, 1, 2) { }
 
             internal override void ReadEntries(BinaryReaderEx br, int count)
             {
                 for (int i = 0; i < count; i++)
-                    Add(new MapNode(br, Version));
+                    Add(new GateNode(br, Version));
             }
 
             internal override void WriteEntries(BinaryWriterEx bw)
@@ -1010,9 +1010,9 @@ namespace SoulsFormats
         }
 
         /// <summary>
-        /// Unknown.
+        /// I've renamed this to what it was called in DS1
         /// </summary>
-        public class MapNode
+        public class GateNode
         {
             /// <summary>
             /// Unknown.
@@ -1020,17 +1020,18 @@ namespace SoulsFormats
             public Vector3 Position { get; set; }
 
             /// <summary>
-            /// Index to a navmesh.
+            /// Index of the connected navmesh.
             /// </summary>
-            public short Section0Index { get; set; }
+            public short ConnectedNavmeshIdx { get; set; }
 
             /// <summary>
-            /// Unknown.
+            /// Too lazy to rename. It's the index of the connection to the connected navmesh.
             /// </summary>
             public short MainID { get; set; }
 
             /// <summary>
-            /// Unknown.
+            /// Costs between gate nodes of a given navmesh.
+            /// This doesn't appear to be Euclidean distance. It's probably the distance an agent has to cover on the actual navmesh.
             /// </summary>
             public List<float> SiblingDistances { get; set; }
 
@@ -1040,17 +1041,17 @@ namespace SoulsFormats
             public int Unk14 { get; set; }
 
             /// <summary>
-            /// Creates an Entry8 with default values.
+            /// Creates a GateNode with default values.
             /// </summary>
-            public MapNode()
+            public GateNode()
             {
                 SiblingDistances = new List<float>();
             }
 
-            internal MapNode(BinaryReaderEx br, int version)
+            internal GateNode(BinaryReaderEx br, int version)
             {
                 Position = br.ReadVector3();
-                Section0Index = br.ReadInt16();
+                ConnectedNavmeshIdx = br.ReadInt16();
                 MainID = br.ReadInt16();
 
                 if (version < 2)
@@ -1072,13 +1073,13 @@ namespace SoulsFormats
             internal void Write(BinaryWriterEx bw, int version, int index)
             {
                 bw.WriteVector3(Position);
-                bw.WriteInt16(Section0Index);
+                bw.WriteInt16(ConnectedNavmeshIdx);
                 bw.WriteInt16(MainID);
 
                 if (version < 2)
                 {
                     if (SiblingDistances.Count > 16)
-                        throw new InvalidDataException("MapNode distance count must not exceed 16 in DS3/BB.");
+                        throw new InvalidDataException("GateNode distance count must not exceed 16 in DS3/BB.");
 
                     foreach (float distance in SiblingDistances)
                         bw.WriteUInt16((ushort)(distance == -1 ? 0xFFFF : Math.Round(distance * 100)));
@@ -1110,7 +1111,7 @@ namespace SoulsFormats
             /// </summary>
             public override string ToString()
             {
-                return $"{Position} {Section0Index} {MainID} [{SiblingDistances.Count} SubIDs]";
+                return $"{Position} {ConnectedNavmeshIdx} {MainID} [{SiblingDistances.Count} SubIDs]";
             }
         }
     }
